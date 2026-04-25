@@ -5,14 +5,23 @@ type Direction = 'up' | 'down' | 'left' | 'right';
 
 export interface AttackEffect {
   id: string;
-  type: 'melee' | 'ranged';
+  type: 'melee' | 'ranged' | 'explosion';
   startX: number;
   startY: number;
   endX: number;
   endY: number;
   facing: Direction;
-  createdAt: number; // Date.now()
-  duration: number;  // ms
+  createdAt: number;
+  duration: number;
+}
+
+export interface Trap {
+  id: string;
+  x: number;
+  y: number;
+  ownerId: string;
+  ownerColor: string;
+  placedAt: number;
 }
 
 export interface PlayerState {
@@ -25,7 +34,9 @@ export interface PlayerState {
   health: number;
   maxHealth: number;
   color: string;
-  lastDamageAt: number; // for damage flash
+  kills: number;
+  deaths: number;
+  lastDamageAt: number;
 }
 
 export interface InventoryItem {
@@ -47,6 +58,7 @@ export interface GameState {
   worldData: Record<string, number>;
   otherPlayers: Record<string, OtherPlayer>;
   attackEffects: AttackEffect[];
+  traps: Trap[];
 
   move: (dx: number, dy: number) => void;
   consumeEnergy: (amount: number) => boolean;
@@ -56,6 +68,12 @@ export interface GameState {
   removeOtherPlayer: (id: string) => void;
   addAttackEffect: (effect: Omit<AttackEffect, 'id' | 'createdAt'>) => void;
   cleanupEffects: () => void;
+  placeTrap: () => Trap | null;
+  addRemoteTrap: (trap: Trap) => void;
+  removeTrap: (trapId: string) => void;
+  incrementKills: () => void;
+  incrementDeaths: () => void;
+  checkTraps: () => Trap | null; // returns trap stepped on, if any
 }
 
 const generateRandomColor = () => {
@@ -63,14 +81,12 @@ const generateRandomColor = () => {
   return colors[Math.floor(Math.random() * colors.length)];
 };
 
-// Generate a stable session ID that persists across the tab lifetime
-// but is unique per tab. We do NOT persist this to localStorage.
 const SESSION_ID = crypto.randomUUID();
 const SESSION_COLOR = generateRandomColor();
 
 export const useGameStore = create<GameState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       player: {
         id: SESSION_ID,
         x: Math.floor(Math.random() * 6) + 8,
@@ -81,12 +97,15 @@ export const useGameStore = create<GameState>()(
         health: 100,
         maxHealth: 100,
         color: SESSION_COLOR,
+        kills: 0,
+        deaths: 0,
         lastDamageAt: 0,
       },
       inventory: [],
       worldData: {},
       otherPlayers: {},
       attackEffects: [],
+      traps: [],
 
       move: (dx, dy) => {
         set((state) => {
@@ -119,12 +138,15 @@ export const useGameStore = create<GameState>()(
         set((state) => {
           const newHealth = Math.max(0, state.player.health - amount);
           if (newHealth === 0) {
+            // Death → respawn
             return {
               player: {
                 ...state.player,
                 health: state.player.maxHealth,
-                x: Math.floor(Math.random() * 5) + 8,
-                y: Math.floor(Math.random() * 5) + 8,
+                energy: state.player.maxEnergy,
+                x: Math.floor(Math.random() * 10) + 5,
+                y: Math.floor(Math.random() * 10) + 5,
+                deaths: state.player.deaths + 1,
                 lastDamageAt: Date.now(),
               },
             };
@@ -164,21 +186,78 @@ export const useGameStore = create<GameState>()(
 
       cleanupEffects: () => {
         const now = Date.now();
-        set((state) => ({
-          attackEffects: state.attackEffects.filter(
-            (e) => now - e.createdAt < e.duration
-          ),
+        set((state) => {
+          const remaining = state.attackEffects.filter((e) => now - e.createdAt < e.duration);
+          // Only update if something actually changed
+          if (remaining.length === state.attackEffects.length) return state;
+          return { attackEffects: remaining };
+        });
+      },
+
+      placeTrap: () => {
+        const state = get();
+        if (state.player.energy < 20) return null;
+        // Don't stack traps on same tile
+        const existing = state.traps.find(
+          (t) => t.x === state.player.x && t.y === state.player.y
+        );
+        if (existing) return null;
+
+        const trap: Trap = {
+          id: crypto.randomUUID(),
+          x: state.player.x,
+          y: state.player.y,
+          ownerId: state.player.id,
+          ownerColor: state.player.color,
+          placedAt: Date.now(),
+        };
+
+        set((s) => ({
+          player: { ...s.player, energy: s.player.energy - 20 },
+          traps: [...s.traps, trap],
         }));
+
+        return trap;
+      },
+
+      addRemoteTrap: (trap) => {
+        set((state) => ({
+          traps: [...state.traps, trap],
+        }));
+      },
+
+      removeTrap: (trapId) => {
+        set((state) => ({
+          traps: state.traps.filter((t) => t.id !== trapId),
+        }));
+      },
+
+      incrementKills: () => {
+        set((state) => ({
+          player: { ...state.player, kills: state.player.kills + 1 },
+        }));
+      },
+
+      incrementDeaths: () => {
+        set((state) => ({
+          player: { ...state.player, deaths: state.player.deaths + 1 },
+        }));
+      },
+
+      checkTraps: () => {
+        const state = get();
+        const trap = state.traps.find(
+          (t) => t.x === state.player.x && t.y === state.player.y && t.ownerId !== state.player.id
+        );
+        return trap ?? null;
       },
     }),
     {
       name: 'retro-game-storage',
-      // Only persist world data and inventory. Player identity is session-scoped.
       partialize: (state) => ({
         inventory: state.inventory,
         worldData: state.worldData,
       }),
-      // On rehydrate, always use the fresh session ID/color
       merge: (persisted, current) => {
         const p = persisted as Partial<GameState> | undefined;
         return {

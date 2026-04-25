@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from 'react';
-import { useGameStore, type OtherPlayer, type AttackEffect } from '../store/gameStore';
+import { useGameStore, type OtherPlayer, type AttackEffect, type Trap } from '../store/gameStore';
 
 const TILE_SIZE = 32;
 
@@ -9,28 +9,36 @@ export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const move = useGameStore((state) => state.move);
 
-  // Use refs for render-loop data so we don't restart the loop on every state change
+  // Refs for render-loop data (read-only in render, never call set() here)
   const playerRef = useRef(useGameStore.getState().player);
   const worldRef = useRef(useGameStore.getState().worldData);
   const othersRef = useRef<Record<string, OtherPlayer>>(useGameStore.getState().otherPlayers);
   const effectsRef = useRef<AttackEffect[]>(useGameStore.getState().attackEffects);
+  const trapsRef = useRef<Trap[]>(useGameStore.getState().traps);
 
-  // Sync refs with Zustand
   useEffect(() => {
     const unsub = useGameStore.subscribe((state) => {
       playerRef.current = state.player;
       worldRef.current = state.worldData;
       othersRef.current = state.otherPlayers;
       effectsRef.current = state.attackEffects;
+      trapsRef.current = state.traps;
     });
     return unsub;
   }, []);
 
-  // Keyboard controls
+  // Effect cleanup on a separate interval — NEVER inside render loop
+  useEffect(() => {
+    const interval = setInterval(() => {
+      useGameStore.getState().cleanupEffects();
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      let dx = 0;
-      let dy = 0;
+      let dx = 0, dy = 0;
       switch (e.key.toLowerCase()) {
         case 'w': case 'arrowup':    dy = -1; break;
         case 's': case 'arrowdown':  dy = 1; break;
@@ -44,7 +52,7 @@ export default function GameCanvas() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [move]);
 
-  // Persistent render loop (never restarts)
+  // Persistent render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -58,6 +66,7 @@ export default function GameCanvas() {
       const worldData = worldRef.current;
       const otherPlayers = othersRef.current;
       const effects = effectsRef.current;
+      const traps = trapsRef.current;
       const now = Date.now();
 
       const W = canvas.width;
@@ -69,7 +78,7 @@ export default function GameCanvas() {
       ctx.save();
       ctx.translate(offsetX, offsetY);
 
-      // ── Draw tilemap ──
+      // ── Tilemap ──
       const sx = player.x - 15, ex = player.x + 15;
       const sy = player.y - 10, ey = player.y + 10;
       for (let y = sy; y <= ey; y++) {
@@ -86,6 +95,38 @@ export default function GameCanvas() {
         }
       }
 
+      // ── Draw traps ──
+      traps.forEach((trap) => {
+        const px = trap.x * TILE_SIZE;
+        const py = trap.y * TILE_SIZE;
+        const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+
+        // Danger tile background
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.15 + pulse * 0.15})`;
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+
+        // Bomb body
+        ctx.fillStyle = '#1f2937';
+        ctx.beginPath();
+        ctx.arc(px + TILE_SIZE / 2, py + TILE_SIZE / 2 + 2, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Fuse
+        ctx.strokeStyle = trap.ownerColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(px + TILE_SIZE / 2 + 4, py + TILE_SIZE / 2 - 6);
+        ctx.lineTo(px + TILE_SIZE / 2 + 8, py + TILE_SIZE / 2 - 10);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+
+        // Fuse spark
+        ctx.fillStyle = `rgba(250, 204, 21, ${pulse})`;
+        ctx.beginPath();
+        ctx.arc(px + TILE_SIZE / 2 + 8, py + TILE_SIZE / 2 - 10, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
       // ── Helper: draw character ──
       const drawChar = (
         x: number, y: number,
@@ -97,11 +138,9 @@ export default function GameCanvas() {
         const px = x * TILE_SIZE;
         const py = y * TILE_SIZE;
 
-        // Body
         ctx.fillStyle = color;
         ctx.fillRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
 
-        // Border highlight for local player
         if (isLocal) {
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 2;
@@ -133,7 +172,7 @@ export default function GameCanvas() {
         ctx.fillStyle = '#22c55e';
         ctx.fillRect(px, py - 7, TILE_SIZE * (hp / maxHp), 5);
 
-        // Facing indicator arrow
+        // Facing arrow (local only)
         if (isLocal) {
           ctx.fillStyle = 'rgba(255,255,255,0.6)';
           const cx = px + TILE_SIZE / 2;
@@ -153,27 +192,24 @@ export default function GameCanvas() {
         }
       };
 
-      // ── Draw other players ──
+      // ── Other players ──
       Object.values(otherPlayers).forEach((p) => {
         drawChar(p.x, p.y, p.facing || 'down', p.color, p.health ?? 100, 100, false);
       });
 
-      // ── Draw local player ──
+      // ── Local player ──
       drawChar(player.x, player.y, player.facing, player.color, player.health, player.maxHealth, true);
 
-      // ── Draw attack effects ──
+      // ── Attack effects ──
       effects.forEach((e) => {
         const elapsed = now - e.createdAt;
         const progress = Math.min(elapsed / e.duration, 1);
         const alpha = 1 - progress;
 
         if (e.type === 'melee') {
-          // Yellow slash on target tile
           ctx.globalAlpha = alpha;
-          ctx.fillStyle = '#facc15';
           const tx = e.endX * TILE_SIZE;
           const ty = e.endY * TILE_SIZE;
-          // Draw an X shape for melee
           ctx.lineWidth = 3;
           ctx.strokeStyle = `rgba(250, 204, 21, ${alpha})`;
           ctx.beginPath();
@@ -185,41 +221,59 @@ export default function GameCanvas() {
           ctx.lineWidth = 1;
           ctx.globalAlpha = 1;
         } else if (e.type === 'ranged') {
-          // Animated projectile from start to end
           const cx = e.startX + (e.endX - e.startX) * progress;
           const cy = e.startY + (e.endY - e.startY) * progress;
           ctx.globalAlpha = alpha;
           ctx.fillStyle = '#f97316';
           ctx.beginPath();
-          ctx.arc(
-            cx * TILE_SIZE + TILE_SIZE / 2,
-            cy * TILE_SIZE + TILE_SIZE / 2,
-            4, 0, Math.PI * 2
-          );
+          ctx.arc(cx * TILE_SIZE + TILE_SIZE / 2, cy * TILE_SIZE + TILE_SIZE / 2, 4, 0, Math.PI * 2);
           ctx.fill();
           // Trail
           ctx.fillStyle = `rgba(249, 115, 22, ${alpha * 0.4})`;
-          const tx = e.startX + (e.endX - e.startX) * Math.max(0, progress - 0.15);
-          const ty = e.startY + (e.endY - e.startY) * Math.max(0, progress - 0.15);
+          const tx2 = e.startX + (e.endX - e.startX) * Math.max(0, progress - 0.15);
+          const ty2 = e.startY + (e.endY - e.startY) * Math.max(0, progress - 0.15);
           ctx.beginPath();
-          ctx.arc(tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2, 3, 0, Math.PI * 2);
+          ctx.arc(tx2 * TILE_SIZE + TILE_SIZE / 2, ty2 * TILE_SIZE + TILE_SIZE / 2, 3, 0, Math.PI * 2);
           ctx.fill();
+          ctx.globalAlpha = 1;
+        } else if (e.type === 'explosion') {
+          // Expanding ring explosion
+          const radius = progress * TILE_SIZE * 2;
+          const cx = e.endX * TILE_SIZE + TILE_SIZE / 2;
+          const cy = e.endY * TILE_SIZE + TILE_SIZE / 2;
+
+          // Outer shockwave
+          ctx.globalAlpha = alpha * 0.6;
+          ctx.strokeStyle = '#f97316';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Inner fireball
+          ctx.fillStyle = `rgba(239, 68, 68, ${alpha * 0.5})`;
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Bright center flash
+          ctx.fillStyle = `rgba(250, 204, 21, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.lineWidth = 1;
           ctx.globalAlpha = 1;
         }
       });
 
       ctx.restore();
 
-      // ── Damage flash overlay ──
+      // ── Damage flash ──
       if (now - player.lastDamageAt < 300) {
         const flashAlpha = 1 - (now - player.lastDamageAt) / 300;
         ctx.fillStyle = `rgba(255, 0, 0, ${flashAlpha * 0.3})`;
         ctx.fillRect(0, 0, W, H);
-      }
-
-      // Cleanup expired effects periodically
-      if (effects.length > 0) {
-        useGameStore.getState().cleanupEffects();
       }
 
       animId = requestAnimationFrame(render);
