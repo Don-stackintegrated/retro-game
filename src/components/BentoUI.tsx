@@ -20,7 +20,8 @@ export default function BentoUI() {
   const otherPlayers = useGameStore((state) => state.otherPlayers);
   const onlineCount = Object.keys(otherPlayers).length;
 
-  const { sendDamage } = useMultiplayer();
+  const { sendDamage, connectionStatus } = useMultiplayer();
+  const statusColor = connectionStatus === 'SUBSCRIBED' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500';
 
   // Passive Energy Regen
   useEffect(() => {
@@ -95,8 +96,11 @@ export default function BentoUI() {
     <div className="min-h-[100dvh] bg-black flex flex-col p-2 md:p-8 font-sans gap-4 selection:bg-none">
       <header className="flex justify-between items-center bg-gray-900 border-4 border-gray-700 p-3 md:p-4 text-white uppercase shadow-[4px_4px_0_0_#374151]">
         <h1 className="text-lg md:text-2xl text-yellow-400">Retro Quest</h1>
-        <div className="flex gap-4 items-center text-xs md:text-sm">
-          <span className="text-green-400">{onlineCount + 1} Online</span>
+        <div className="flex gap-3 items-center text-xs md:text-sm">
+          <span className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+            <span className={connectionStatus === 'SUBSCRIBED' ? 'text-green-400' : 'text-yellow-400'}>{onlineCount + 1} Online</span>
+          </span>
           <span>Lvl. 1</span>
         </div>
       </header>

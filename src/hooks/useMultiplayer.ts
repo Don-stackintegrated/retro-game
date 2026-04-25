@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useGameStore } from '../store/gameStore';
 
@@ -13,6 +13,7 @@ import { useGameStore } from '../store/gameStore';
  */
 export function useMultiplayer() {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<string>('connecting');
 
   // Use a ref so channel callbacks always read the LATEST player state
   const playerRef = useRef(useGameStore.getState().player);
@@ -43,10 +44,8 @@ export function useMultiplayer() {
       const store = useGameStore.getState();
       const myId = playerRef.current.id;
 
-      // Iterate all presence entries and update otherPlayers
       Object.entries(presenceState).forEach(([key, values]) => {
         if (key === myId) return;
-        // Presence values is an array; take the latest
         const latest = values[values.length - 1] as Record<string, unknown>;
         if (latest) {
           store.updateOtherPlayer(key, {
@@ -87,6 +86,8 @@ export function useMultiplayer() {
 
     // ── Subscribe and track presence ──
     channel.subscribe(async (status) => {
+      console.log('🎮 Realtime status:', status);
+      setConnectionStatus(status);
       if (status === 'SUBSCRIBED') {
         const p = playerRef.current;
         await channel.track({
@@ -155,5 +156,5 @@ export function useMultiplayer() {
     });
   }, []);
 
-  return { sendDamage };
+  return { sendDamage, connectionStatus };
 }
