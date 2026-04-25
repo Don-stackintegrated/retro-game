@@ -5,7 +5,6 @@ import { useGameStore } from '../store/gameStore';
 export function useMultiplayer() {
   const player = useGameStore((state) => state.player);
   const updateOtherPlayer = useGameStore((state) => state.updateOtherPlayer);
-  const removeOtherPlayer = useGameStore((state) => state.removeOtherPlayer);
   const takeDamage = useGameStore((state) => state.takeDamage);
   
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -57,6 +56,7 @@ export function useMultiplayer() {
     return () => {
        supabase.removeChannel(channel);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Mount only once
 
   // 2. Broadcast Local Player changes
@@ -68,6 +68,7 @@ export function useMultiplayer() {
            payload: player,
         });
      }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player.x, player.y, player.health]); // Re-sync when critical stats change
 
   // 3. Expose the attack trigger

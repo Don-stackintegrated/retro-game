@@ -10,6 +10,7 @@ export default function GameCanvas() {
   const player = useGameStore((state) => state.player);
   const worldData = useGameStore((state) => state.worldData);
   const otherPlayers = useGameStore((state) => state.otherPlayers);
+  const move = useGameStore((state) => state.move);
 
   // Keyboard controls
   useEffect(() => {
@@ -137,7 +138,8 @@ export default function GameCanvas() {
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [player.x, player.y, player.health, player.color, worldData, otherPlayers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player.x, player.y, player.health, player.maxHealth, player.color, worldData, otherPlayers]);
 
   return (
     <div className="w-full h-full flex justify-center items-center bg-gray-900 border-4 border-gray-700 shadow-xl overflow-hidden rounded-md relative select-none">
