@@ -25,26 +25,24 @@ export function useMultiplayer() {
           updateOtherPlayer(payload.id, {
              x: payload.x,
              y: payload.y,
+             facing: payload.facing,
              health: payload.health,
              color: payload.color
           });
        }
     });
 
-    // Listen to damage events targeted at anyone
-    channel.on('broadcast', { event: 'attack' }, ({ payload }) => {
-        // If the attack is on our current tile, we take damage
-        if (payload.targetX === player.x && payload.targetY === player.y && payload.attackerId !== player.id) {
-            takeDamage(10); // Standard attack logic
+    // Listen to explicit targeted damage events (lag-compensated locally)
+    channel.on('broadcast', { event: 'damage' }, ({ payload }) => {
+        if (payload.targetId === player.id) {
+            console.log("Got hit!", payload.amount);
+            takeDamage(payload.amount);
         }
     });
 
-    // Listen to player disconnects via Presence (if we move to full presence model)
-    // For now we rely on a manual disconnect ping or standard timeout for a retro prototype
-
     channel.subscribe((status) => {
+      console.log("Realtime Channel Status:", status);
       if (status === 'SUBSCRIBED') {
-         // Perform initial sync broadcast
          channel.send({
             type: 'broadcast',
             event: 'player_sync',
@@ -69,18 +67,18 @@ export function useMultiplayer() {
         });
      }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player.x, player.y, player.health]); // Re-sync when critical stats change
+  }, [player.x, player.y, player.facing, player.health]); // Re-sync when stat or position changes
 
-  // 3. Expose the attack trigger
-  const broadcastAttack = (targetX: number, targetY: number) => {
+  // 3. Expose targeted damage logic
+  const sendDamage = (targetId: string, amount: number) => {
     if (channelRef.current) {
       channelRef.current.send({
         type: 'broadcast',
-        event: 'attack',
-        payload: { targetX, targetY, attackerId: player.id },
+        event: 'damage',
+        payload: { targetId, amount },
       });
     }
   };
 
-  return { broadcastAttack };
+  return { sendDamage };
 }

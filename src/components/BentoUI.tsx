@@ -1,9 +1,9 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import GameCanvas from './GameCanvas';
 import { useGameStore } from '../store/gameStore';
-import { Pickaxe, Heart, Sword, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Pickaxe, Heart, Sword, Crosshair, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import { useMultiplayer } from '../hooks/useMultiplayer';
 
 export default function BentoUI() {
@@ -15,7 +15,20 @@ export default function BentoUI() {
   const move = useGameStore((state) => state.move);
   
   // Hook up multiplayer bindings
-  const { broadcastAttack } = useMultiplayer();
+  const { sendDamage } = useMultiplayer();
+
+  // Passive Energy Regen
+  useEffect(() => {
+     const interval = setInterval(() => {
+        useGameStore.setState(state => {
+           if (state.player.energy < state.player.maxEnergy) {
+               return { player: { ...state.player, energy: Math.min(state.player.maxEnergy, state.player.energy + 5) } };
+           }
+           return state;
+        });
+     }, 1000);
+     return () => clearInterval(interval);
+  }, []);
 
   const handleDig = () => {
     if (consumeEnergy(5)) {
@@ -23,11 +36,39 @@ export default function BentoUI() {
     }
   };
 
-  const handleAttack = () => {
-    if (consumeEnergy(2)) {
-      // Attack adjacent top cell (prototype logic)
-      broadcastAttack(player.x, player.y - 1);
-      // We can also trigger a visual effect locally if wanted
+  const handleCombat = (type: 'melee' | 'ranged') => {
+    const cost = type === 'melee' ? 10 : 15;
+    const damage = type === 'melee' ? 25 : 15;
+    const range = type === 'melee' ? 1 : 5;
+
+    if (!consumeEnergy(cost)) return;
+
+    let dx = 0; let dy = 0;
+    if (player.facing === 'up') dy = -1;
+    if (player.facing === 'down') dy = 1;
+    if (player.facing === 'left') dx = -1;
+    if (player.facing === 'right') dx = 1;
+
+    let hitTargetId: string | null = null;
+    const otherPlayers = useGameStore.getState().otherPlayers;
+
+    for (let i = 1; i <= range; i++) {
+        const cx = player.x + (dx * i);
+        const cy = player.y + (dy * i);
+        
+        // Find if anyone is on this tile
+        const targetId = Object.keys(otherPlayers).find(id => {
+            const p = otherPlayers[id];
+            return p.x === cx && p.y === cy && p.health > 0;
+        });
+        if (targetId) {
+            hitTargetId = targetId;
+            break;
+        }
+    }
+
+    if (hitTargetId) {
+       sendDamage(hitTargetId, damage);
     }
   };
 
@@ -74,20 +115,28 @@ export default function BentoUI() {
               <h2 className="text-sm text-gray-400 mb-4">Actions</h2>
               <div className="grid grid-cols-1 gap-4">
                  <button 
-                   onClick={handleDig}
-                   disabled={energy < 5}
-                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border-2 border-gray-600 p-4 flex flex-col items-center gap-2 transition-colors active:translate-y-1"
+                   onClick={() => handleCombat('melee')}
+                   disabled={energy < 10}
+                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border-2 border-gray-600 p-3 flex flex-col items-center gap-1 transition-colors active:translate-y-1"
                  >
-                    <Pickaxe className="text-gray-300 w-8 h-8" />
-                    <span className="text-xs">Dig (-5)</span>
+                    <Sword className="text-gray-300 w-6 h-6" />
+                    <span className="text-xs">Melee (-10e)</span>
                  </button>
                  <button 
-                   onClick={handleAttack}
-                   disabled={energy < 2}
-                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border-2 border-gray-600 p-4 flex flex-col items-center gap-2 transition-colors active:translate-y-1"
+                   onClick={() => handleCombat('ranged')}
+                   disabled={energy < 15}
+                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border-2 border-gray-600 p-3 flex flex-col items-center gap-1 transition-colors active:translate-y-1"
                  >
-                    <Sword className="text-gray-300 w-8 h-8" />
-                    <span className="text-xs">Attack (-2)</span>
+                    <Crosshair className="text-gray-300 w-6 h-6" />
+                    <span className="text-xs">Ranged (-15e)</span>
+                 </button>
+                 <button 
+                   onClick={handleDig}
+                   disabled={energy < 5}
+                   className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 border-2 border-gray-600 p-3 flex flex-col items-center gap-1 transition-colors active:translate-y-1 mt-4"
+                 >
+                    <Pickaxe className="text-gray-300 w-6 h-6" />
+                    <span className="text-xs">Dig (-5e)</span>
                  </button>
               </div>
            </div>
@@ -110,11 +159,11 @@ export default function BentoUI() {
 
              {/* Mobile Actions Overlay */}
              <div className="absolute bottom-4 right-4 lg:hidden opacity-90 flex flex-col gap-2">
-                 <button onClick={handleAttack} disabled={energy < 2} className="bg-red-800 border-2 border-gray-500 p-4 rounded-full active:bg-red-600 shadow-xl disabled:opacity-50 touch-manipulation">
-                    <Sword className="text-white w-6 h-6" />
+                 <button onClick={() => handleCombat('ranged')} disabled={energy < 15} className="bg-blue-800 border-2 border-gray-500 p-3 rounded-full active:bg-blue-600 shadow-xl disabled:opacity-50 touch-manipulation">
+                    <Crosshair className="text-white w-5 h-5" />
                  </button>
-                 <button onClick={handleDig} disabled={energy < 5} className="bg-blue-800 border-2 border-gray-500 p-4 rounded-full active:bg-blue-600 shadow-xl disabled:opacity-50 touch-manipulation">
-                    <Pickaxe className="text-white w-6 h-6" />
+                 <button onClick={() => handleCombat('melee')} disabled={energy < 10} className="bg-red-800 border-2 border-gray-500 p-4 rounded-full active:bg-red-600 shadow-xl disabled:opacity-50 touch-manipulation">
+                    <Sword className="text-white w-6 h-6" />
                  </button>
              </div>
            </div>
@@ -124,14 +173,12 @@ export default function BentoUI() {
         <aside className="col-span-1 bg-gray-900 border-4 border-gray-700 p-4 text-white shadow-[4px_4px_0_0_#374151] flex flex-col h-48 lg:h-auto">
            <h2 className="text-sm text-gray-400 mb-4">Inventory</h2>
            <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-3 gap-2 flex-1 content-start">
-             {/* 12 slot inventory placeholder */}
              {Array.from({ length: 12 }).map((_, i) => {
                const item = inventory[i];
                return (
                  <div key={i} className="aspect-square bg-gray-950 border-2 border-gray-800 p-2 flex items-center justify-center relative hover:border-gray-600 cursor-pointer">
                     {item ? (
                       <div>
-                        {/* Mock item icon */}
                         <div className="w-8 h-8 bg-amber-600 block" />
                         <span className="absolute bottom-1 right-1 text-[8px] bg-black px-1 border border-gray-700">x{item.quantity}</span>
                       </div>
@@ -145,7 +192,7 @@ export default function BentoUI() {
            
            <div className="hidden lg:block mt-4 p-4 bg-gray-950 border-2 border-gray-800 min-h-24">
              <p className="text-xs text-gray-500">Move: WASD</p>
-             <p className="text-xs text-gray-500 mt-2">Space: Action</p>
+             <p className="text-xs text-gray-500 mt-2">Combat checks tiles you face.</p>
            </div>
         </aside>
       </main>

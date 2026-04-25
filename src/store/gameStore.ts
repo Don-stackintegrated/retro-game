@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+type Direction = 'up' | 'down' | 'left' | 'right';
+
 export interface PlayerState {
   id: string; // Unique session/user ID
   x: number;
   y: number;
+  facing: Direction;
   energy: number;
   maxEnergy: number;
   health: number;
@@ -20,6 +23,7 @@ export interface InventoryItem {
 export interface OtherPlayer {
   x: number;
   y: number;
+  facing: Direction;
   health: number;
   color: string;
 }
@@ -49,11 +53,12 @@ const generateRandomColor = () => {
 
 export const useGameStore = create<GameState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       player: {
         id: crypto.randomUUID(),
         x: 10,
         y: 10,
+        facing: 'down',
         energy: 100,
         maxEnergy: 100,
         health: 100,
@@ -68,12 +73,20 @@ export const useGameStore = create<GameState>()(
         set((state) => {
           const newX = state.player.x + dx;
           const newY = state.player.y + dy;
+          let newFacing = state.player.facing;
+
+          if (dx === 1) newFacing = 'right';
+          if (dx === -1) newFacing = 'left';
+          if (dy === 1) newFacing = 'down';
+          if (dy === -1) newFacing = 'up';
+
           // Normally includes collision detection with worldData here
           return {
             player: {
               ...state.player,
               x: newX,
               y: newY,
+              facing: newFacing
             },
           };
         });
@@ -105,8 +118,8 @@ export const useGameStore = create<GameState>()(
                  player: {
                     ...state.player,
                     health: state.player.maxHealth,
-                    x: 10,
-                    y: 10,
+                    x: Math.floor(Math.random() * 5) + 8, // slight randomize respawn
+                    y: Math.floor(Math.random() * 5) + 8,
                  }
               }
             }
@@ -120,9 +133,7 @@ export const useGameStore = create<GameState>()(
       },
 
       triggerAttack: () => {
-         // This mostly tells the system an attack was processed for the external sync listener
-         // The actual broadcast is handled in the UI mapping or a listener hook.
-         get().consumeEnergy(2);
+         // UI facing trigger, unused in direct broadcast
       },
 
       updateWorldTile: (x, y, type) => {
@@ -153,9 +164,12 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: 'retro-game-storage',
-      // We purposefully don't persist 'otherPlayers' to avoid ghost players on reload
       partialize: (state) => ({ 
-          player: state.player, 
+          player: { 
+             ...state.player, 
+             id: crypto.randomUUID(), 
+             color: generateRandomColor() 
+          }, 
           inventory: state.inventory, 
           worldData: state.worldData 
       }),

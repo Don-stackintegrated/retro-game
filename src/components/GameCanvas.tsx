@@ -96,14 +96,24 @@ export default function GameCanvas() {
         }
       }
 
+      const drawFace = (x: number, y: number, facing: 'up' | 'down' | 'left' | 'right') => {
+         ctx.fillStyle = '#000';
+         if (facing === 'down') {
+            ctx.fillRect(x * TILE_SIZE + 8, y * TILE_SIZE + 20, 4, 4);
+            ctx.fillRect(x * TILE_SIZE + 20, y * TILE_SIZE + 20, 4, 4);
+         } else if (facing === 'left') {
+            ctx.fillRect(x * TILE_SIZE + 4, y * TILE_SIZE + 8, 4, 4);
+            ctx.fillRect(x * TILE_SIZE + 4, y * TILE_SIZE + 20, 4, 4);
+         } else if (facing === 'right') {
+            ctx.fillRect(x * TILE_SIZE + 24, y * TILE_SIZE + 8, 4, 4);
+            ctx.fillRect(x * TILE_SIZE + 24, y * TILE_SIZE + 20, 4, 4);
+         }
+      };
+
       // Draw Player
       ctx.fillStyle = player.color || '#ff4500'; 
       ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-
-      // Add a simple face for character orientation
-      ctx.fillStyle = '#000';
-      ctx.fillRect(player.x * TILE_SIZE + 20, player.y * TILE_SIZE + 8, 4, 4); // eye
-      ctx.fillRect(player.x * TILE_SIZE + 20, player.y * TILE_SIZE + 20, 4, 4); // eye
+      drawFace(player.x, player.y, player.facing);
 
       // Draw Local Player Health Bar
       ctx.fillStyle = 'red';
@@ -115,11 +125,7 @@ export default function GameCanvas() {
       Object.values(otherPlayers).forEach(p => {
           ctx.fillStyle = p.color;
           ctx.fillRect(p.x * TILE_SIZE, p.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-          
-          // Face
-          ctx.fillStyle = '#000';
-          ctx.fillRect(p.x * TILE_SIZE + 20, p.y * TILE_SIZE + 8, 4, 4);
-          ctx.fillRect(p.x * TILE_SIZE + 20, p.y * TILE_SIZE + 20, 4, 4);
+          drawFace(p.x, p.y, p.facing || 'down');
 
           // Health bar
           ctx.fillStyle = 'red';
